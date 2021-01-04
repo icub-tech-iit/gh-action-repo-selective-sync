@@ -14,16 +14,22 @@ inputs:
   token-target:
     description: 'token to acces target repo'
     required: true
+  install-deps:
+    description: 'install required dependencies on the runner'
+    required: false
+    default: 'true'
 runs:
   using: "composite"
   steps:
     - name: Install dependencies
       shell: bash
       run: |
-        sudo apt update
-        sudo apt install -y coreutils bc curl git git-lfs
-        sudo snap install yq
-        git lfs install
+        if [ "${{ inputs.install-deps }}" == "true" ]; then
+          sudo apt update
+          sudo apt install -y coreutils bc curl git git-lfs
+          sudo snap install yq
+          git lfs install
+        fi
 
     - name: Retrieve recipe
       shell: bash
@@ -75,7 +81,7 @@ runs:
         # establish target branch
         target_branch=$(yq e '.target.branch' ${RECIPE})
         if [ "${target_branch}" == "null" ]; then
-          echo "Target branch \"null\" detected; switching to \"${source_branch}\" as fallback"
+          echo "Target branch \"null\" detected; switching to fallback \"${source_branch}\""
           target_branch=${source_branch}
         fi
         echo "Using target branch = \"${target_branch}\""
