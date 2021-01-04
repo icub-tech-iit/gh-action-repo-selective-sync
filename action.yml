@@ -14,22 +14,26 @@ inputs:
   token-target:
     description: 'token to acces target repo'
     required: true
-  install-deps:
-    description: 'install required dependencies on the runner'
+  sudo-passwd:
+    description: 'sudo password for self-hosted runner'
     required: false
-    default: 'true'
+    default: ''
 runs:
   using: "composite"
   steps:
     - name: Install dependencies
       shell: bash
       run: |
-        if [ "${{ inputs.install-deps }}" == "true" ]; then
+        if [ -z "${{ inputs.sudo-passwd }}" ]; then
           sudo apt update
           sudo apt install -y coreutils bc curl git git-lfs
           sudo snap install yq
-          git lfs install
+        else  
+          echo "${{ inputs.sudo-passwd }}" | sudo -S apt update
+          echo "${{ inputs.sudo-passwd }}" | sudo -S apt install -y coreutils bc curl git git-lfs
+          echo "${{ inputs.sudo-passwd }}" | sudo -S snap install yq
         fi
+        git lfs install
 
     - name: Retrieve recipe
       shell: bash
