@@ -1,0 +1,203 @@
+name: 'Repo Selective Sync'
+description: 'Automatically synchronize target from source repos by specifying what to copy'
+author: 'Ugo Pattacini'
+branding:
+  icon: 'share'
+  color: 'blue'
+inputs:
+  recipe-file:
+    description: 'path to file containing the recipe to copy data'
+    required: true
+  token-source:
+    description: 'token to acces source repo'
+    required: true
+  token-target:
+    description: 'token to acces target repo'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt update
+        sudo apt install -y coreutils bc curl git git-lfs
+        sudo snap install yq
+        git lfs install
+
+    - name: Retrieve recipe
+      shell: bash
+      run: |
+        recipe=$(basename ${{ inputs.recipe-file }})
+        curl --header 'Authorization: token ${{ inputs.token-source }}' \
+             --header 'Accept: application/vnd.github.v3.raw' \
+             --location "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/${{ inputs.recipe-file }}?ref=${GITHUB_REF}" \
+             --output ${recipe}
+
+        target_repo=$(yq e '.target.repo' ${recipe})
+        echo "Synching target repo = \"${target_repo}\""
+
+        echo "RECIPE=${GITHUB_WORKSPACE}/${recipe}" >> ${GITHUB_ENV}
+        echo "SOURCE_DIR=${GITHUB_WORKSPACE}/${GITHUB_REPOSITORY}" >> ${GITHUB_ENV}
+        echo "TARGET_DIR=${GITHUB_WORKSPACE}/${target_repo}" >> ${GITHUB_ENV}
+        echo "TARGET_REPO=${target_repo}" >> ${GITHUB_ENV}
+
+    - name: Clone/Pull source and target repositories
+      shell: bash
+      run: |
+        push_default="upstream"
+        user_name="GitHub Actions"
+        user_email="actions@github.com"
+        
+        source_branch=$(basename ${GITHUB_REF})
+        source_sha=${GITHUB_SHA}
+        
+        echo "source_branch = ${source_branch}"
+        echo "source_sha = ${source_sha}"
+
+        if [ ! -d "${SOURCE_DIR}" ]; then
+          git clone --single-branch --branch ${source_branch} https://x-access-token:${{ inputs.token-source }}@github.com/${GITHUB_REPOSITORY}.git ${SOURCE_DIR}
+          cd ${SOURCE_DIR}
+          git reset --hard ${source_sha}
+        else
+          cd ${SOURCE_DIR}
+          git checkout ${source_branch}
+          git reset --hard origin/${source_branch}
+          git clean -f
+          git remote set-url origin https://x-access-token:${{ inputs.token-source }}@github.com/${GITHUB_REPOSITORY}.git
+          git pull origin ${source_branch} --rebase
+          git reset --hard ${source_sha}
+        fi
+        git config --local push.default ${push_default}
+        git config --local user.name "${user_name}"
+        git config --local user.email "${user_email}"
+
+        # establish target branch
+        target_branch=$(yq e '.target.branch' ${RECIPE})
+        if [ "${target_branch}" == "null" ]; then
+          echo "Target branch \"null\" detected; switching to \"${source_branch}\" as fallback"
+          target_branch=${source_branch}
+        fi
+        echo "Using target branch = \"${target_branch}\""
+        echo "TARGET_BRANCH=${target_branch}" >> ${GITHUB_ENV}
+
+        if [ ! -d "${TARGET_DIR}" ]; then
+          git clone https://x-access-token:${{ inputs.token-target }}@github.com/${TARGET_REPO}.git ${TARGET_DIR}
+          cd ${TARGET_DIR}
+          existed_in_local=$(git branch --list ${target_branch})
+          if [ -z "${existed_in_local}" ]; then
+            git checkout -b ${target_branch}
+          fi
+        else
+          cd ${TARGET_DIR}
+          git checkout ${target_branch}
+          git reset --hard origin/${target_branch}
+          git clean -f
+          git remote set-url origin https://x-access-token:${{ inputs.token-target }}@github.com/${TARGET_REPO}.git
+          git pull origin ${target_branch} --rebase
+        fi
+        git config --local push.default ${push_default}
+        git config --local user.name "${user_name}"
+        git config --local user.email "${user_email}"
+
+    - name: Clean up current target
+      shell: bash
+      run: |
+        cd ${TARGET_DIR}
+        rm -Rf `ls -A | grep -v "^.git$"`
+
+    - name: Copy out source files into target
+      shell: bash
+      run: |
+        copy_from=$(yq e '.source.copy_from' ${RECIPE} | sed 's/^..//;s/\"//g')
+        copy_to=$(yq e '.target.copy_to' ${RECIPE} | sed 's/^..//;s/\"//g')
+
+        copy_from_n=$(echo "${copy_from}" | sed '/^\s*$/d' | wc -l)
+        copy_to_n=$(echo "${copy_to}" | sed '/^\s*$/d' | wc -l)
+
+        echo "=== \"copy_from\" (${copy_from_n} items):"
+        echo "${copy_from}"
+        echo "=== \"copy_to\" (${copy_to_n} items):"
+        echo "${copy_to}"
+
+        if ! [ ${copy_from_n} -eq ${copy_to_n} ]; then
+          echo "\"copy_from\" and \"copy_to\" keys do have different length"
+          exit 1
+        fi
+        
+        for (( i=1; i<=${copy_from_n}; i++ )); do
+          item_from=$(sed -n ${i}p <<< "${copy_from}")
+          item_to=$(sed -n ${i}p <<< "${copy_to}")
+          
+          if [ -e "${SOURCE_DIR}/${item_from}" ]; then
+            dir=$(dirname "${TARGET_DIR}/${item_to}")
+            base=$(basename "${TARGET_DIR}/${item_to}")
+            mkdir -p "${dir}"
+            cp -R "${SOURCE_DIR}/${item_from}" "${dir}/${base}"
+          fi
+        done
+
+    - name: Remove specific target files after copy
+      shell: bash
+      run: |
+        remove_data=$(yq e '.target.remove_after_copy' ${RECIPE} | sed 's/^..//;s/\"//g')
+        
+        remove_data_n=$(echo "${remove_data}" | sed '/^\s*$/d' | wc -l)
+        echo "=== \"remove_data\" (${remove_data_n} items):"
+        echo "${remove_data}"
+
+        for (( i=1; i<=${remove_data_n}; i++ )); do
+          item=$(sed -n ${i}p <<< "${remove_data}")
+          if [ -e "${TARGET_DIR}/${item}" ]; then
+            rm -Rf "${TARGET_DIR}/${item}"
+          fi  
+        done
+
+    - name: Create target commits
+      shell: bash
+      run: |
+        target_maxsize_commit_MB=$(yq e '.target.maxsize_commit_MB' ${RECIPE})
+        target_commit_message=$(yq e '.target.commit_message' ${RECIPE} | sed 's/\"//g')
+
+        echo "target_maxsize_commit_MB = ${target_maxsize_commit_MB}"
+        echo "target_commit_message = \"${target_commit_message}\""
+
+        cd ${TARGET_DIR}
+        maxsize_commit_byte=$(bc <<< "${target_maxsize_commit_MB} * 1024 * 1024")
+        commit_count=0
+        commit_size=0
+        readarray -t files < <(git ls-files --modified --others)
+        for ((i=0; i<${#files[@]}; ++i)); do
+          if [ -f "${files[i]}" ]; then
+            file_size=$(stat -c "%s" "${files[i]}")
+          else
+            file_size=0
+          fi
+          commit_size=$(bc <<< "${commit_size} + ${file_size}")
+          if [ "${commit_size}" -gt "${maxsize_commit_byte}" ]; then
+            commit_count=$(bc <<< "${commit_count} + 1")
+            message="${target_commit_message} commit ${commit_count}"
+            echo "${message}"
+            git commit -m "${message}"
+            commit_size=${file_size}
+          fi
+          echo "commit size = ${commit_size} byte; adding \"${files[i]}\""
+          git add "${files[i]}"
+        done
+
+        # process any change still to be committed
+        files=$(git diff --cached --name-only)
+        if [ ! -z "${files}" ]; then
+          commit_count=$(bc <<< "${commit_count} + 1")
+          message="${target_commit_message} commit ${commit_count}"
+          echo "${message}"
+          git commit -m "${message}" -m "triggered by https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+        fi
+
+        echo "total number of commits: $(git rev-list --count ${TARGET_BRANCH})"
+
+    - name: Sync target
+      shell: bash
+      run: |
+        cd ${TARGET_DIR}
+        git push --force --set-upstream origin ${TARGET_BRANCH}
