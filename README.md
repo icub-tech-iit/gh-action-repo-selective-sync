@@ -110,10 +110,6 @@ of large repositories containing LFS files.
 The Personal Access Token (PAT) that allows accessing the
 source repository. It may be the standard `GITHUB_TOKEN`.
 
-Be careful as `GITHUB_TOKEN` will expire after 1 hour and this could
-be problematic if the first copy takes longer. To get around
-this, simply specify a dedicated PAT.
-
 ### `token-target`
 The Personal Access Token (PAT) that allows accessing the
 target repository.
