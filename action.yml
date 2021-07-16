@@ -43,6 +43,9 @@ runs:
              --header 'Accept: application/vnd.github.v3.raw' \
              --location "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/${{ inputs.recipe-file }}?ref=${GITHUB_REF}" \
              --output ${recipe}
+             
+        echo "===== Recipe file ====="
+        echo "${recipe}"
 
         target_repo=$(yq e '.target.repo' ${recipe})
         echo "Synching target repo = \"${target_repo}\""
