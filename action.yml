@@ -44,6 +44,12 @@ runs:
              --location "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/${{ inputs.recipe-file }}?ref=${GITHUB_REF}" \
              --output ${recipe}
              
+        message_found=$(yq e '.message' ${recipe})
+        if [ "${message_found}" == "Not Found" ]; then
+          echo "❌ Recipe file not found!"
+          exit 1
+        fi
+             
         echo "===== Recipe file ====="
         echo "${recipe}"
 
