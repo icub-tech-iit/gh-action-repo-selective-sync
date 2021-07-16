@@ -51,7 +51,7 @@ runs:
         fi
              
         echo "===== Recipe file ====="
-        echo "${recipe}"
+        cat ${recipe}
 
         target_repo=$(yq e '.target.repo' ${recipe})
         echo "Synching target repo = \"${target_repo}\""
