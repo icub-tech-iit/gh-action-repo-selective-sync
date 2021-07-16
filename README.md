@@ -95,6 +95,9 @@ The action will copy out data (files and directories) specified
 in the paths under `source.copy_from` into the paths specified under
 `target.copy_to` of the target repo determined by the field `target.repo`.
 
+Optionally, one can also specify a target branch different from the source
+by means of the field `target.branch`.
+
 After this copy, a clean up can be requested by listing down the
 paths to be removed under `target.remove_after_copy` (can be left empty).
 
