@@ -46,7 +46,7 @@ runs:
              
         message_found=$(yq e '.message' ${recipe})
         if [ "${message_found}" == "Not Found" ]; then
-          echo "❌ Recipe file not found!"
+          echo "❌ Recipe file \"${{ inputs.recipe-file }}\" not found!"
           exit 1
         fi
              
