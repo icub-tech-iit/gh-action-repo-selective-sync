@@ -44,7 +44,7 @@ runs:
              --location "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/${{ inputs.recipe-file }}?ref=${GITHUB_REF}" \
              --output ${recipe}
              
-        message_found=$(yq e '.message' ${recipe})
+        message_found=$(yq e '.message' < ${recipe})
         if [ "${message_found}" == "Not Found" ]; then
           echo "❌ Recipe file \"${{ inputs.recipe-file }}\" not found!"
           exit 1
@@ -53,7 +53,7 @@ runs:
         echo "===== Recipe file ====="
         cat ${recipe}
 
-        target_repo=$(yq e '.target.repo' ${recipe})
+        target_repo=$(yq e '.target.repo' < ${recipe})
         echo "Synching target repo = \"${target_repo}\""
 
         echo "RECIPE=${GITHUB_WORKSPACE}/${recipe}" >> ${GITHUB_ENV}
@@ -92,7 +92,7 @@ runs:
         git config --local user.email "${user_email}"
 
         # establish target branch
-        target_branch=$(yq e '.target.branch' ${RECIPE})
+        target_branch=$(yq e '.target.branch' < ${RECIPE})
         if [ "${target_branch}" == "null" ]; then
           echo "Target branch \"null\" detected; switching to fallback \"${source_branch}\""
           target_branch=${source_branch}
@@ -128,8 +128,8 @@ runs:
     - name: Copy out source files into target
       shell: bash
       run: |
-        copy_from=$(yq e '.source.copy_from' ${RECIPE} | sed 's/^..//;s/\"//g')
-        copy_to=$(yq e '.target.copy_to' ${RECIPE} | sed 's/^..//;s/\"//g')
+        copy_from=$(yq e '.source.copy_from' < ${RECIPE} | sed 's/^..//;s/\"//g')
+        copy_to=$(yq e '.target.copy_to' < ${RECIPE} | sed 's/^..//;s/\"//g')
 
         copy_from_n=$(echo "${copy_from}" | sed '/^\s*$/d' | wc -l)
         copy_to_n=$(echo "${copy_to}" | sed '/^\s*$/d' | wc -l)
@@ -159,7 +159,7 @@ runs:
     - name: Remove specific target files after copy
       shell: bash
       run: |
-        remove_data=$(yq e '.target.remove_after_copy' ${RECIPE} | sed 's/^..//;s/\"//g')
+        remove_data=$(yq e '.target.remove_after_copy' < ${RECIPE} | sed 's/^..//;s/\"//g')
         
         remove_data_n=$(echo "${remove_data}" | sed '/^\s*$/d' | wc -l)
         echo "=== \"remove_data\" (${remove_data_n} items):"
@@ -175,8 +175,8 @@ runs:
     - name: Create target commits
       shell: bash
       run: |
-        target_maxsize_commit_MB=$(yq e '.target.maxsize_commit_MB' ${RECIPE})
-        target_commit_message=$(yq e '.target.commit_message' ${RECIPE} | sed 's/\"//g')
+        target_maxsize_commit_MB=$(yq e '.target.maxsize_commit_MB' < ${RECIPE})
+        target_commit_message=$(yq e '.target.commit_message' < ${RECIPE} | sed 's/\"//g')
 
         echo "target_maxsize_commit_MB = ${target_maxsize_commit_MB}"
         echo "target_commit_message = \"${target_commit_message}\""
